@@ -1,67 +1,258 @@
+import json
 import os
+import re
+
 from dotenv import load_dotenv
 from openai import OpenAI
 from docx import Document
+from docx.enum.style import WD_STYLE_TYPE
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
+from docx.shared import Cm, Pt
+
 
 load_dotenv()
 
 PROMPT = """
-1. Параметры страницы
-Ориентация — книжная.
-Левое поле — 2,5 см.
-Правое поле — 2 см.
-Верхнее поле — 1,5 см.
-Нижнее поле — 1,5 см.
+Ты — профессиональный редактор служебных документов.
 
-2. Шрифты и стили
+Преобразуй черновик пользователя в лаконичный официальный документ.
+Сохраняй все факты, но исправляй грамматику и логику изложения.
 
-•	Стиль «Обычный» — Arial, 12 pt, интервал 1,15, по левому краю, первая строка 0 см. Базовый стиль документа.
-•	Стиль «Заголовок1» — Arial, 12 pt, полужирный, по левому краю, первая строка 0 см.
-•	Стиль «Адресат» — Arial, 12 pt, по левому краю, первая строка 0 см.
-•	Стиль «Текст1» — Arial, 12 pt, по левому краю, первая строка 0 см.
-•	Стиль «Подпись1» — Arial, 12 pt, по центру, первая строка 0 см.
-•	Стиль «Колонтитул» — Arial, 10 pt, по центру.
+Верни ТОЛЬКО корректный JSON без HTML, Markdown и комментариев:
 
-3. Колонтитулы
-Верхний — отсутствует.
-Нижний — название документа и дата.
+{
+  "organization": "название организации",
+  "document_type": "тип документа",
+  "topic": "полная тема документа",
+  "recipient": "должность, организация и ФИО адресата",
+  "author": "должность и ФИО автора",
+  "date": "дата",
+  "number": "номер",
+  "paragraphs": [
+    "логический абзац 1",
+    "логический абзац 2",
+    "логический абзац 3"
+  ],
+  "sign_position": "должность подписанта",
+  "signer": "ФИО подписанта"
+}
 
-4. Расположение реквизитов
-Тема сверху слева — стиль «Заголовок1».
-Блок «Кому / От кого» — таблица, стиль «Адресат».
-Основной текст — стиль «Текст1».
-Подпись по центру — стиль «Подпись1».
+Правила:
+- не придумывай факты;
+- не изменяй даты, номера, адреса, должности и инициалы;
+- не используй HTML и Markdown;
+- не повторяй реквизиты в основном тексте;
+- если значение отсутствует, верни пустую строку;
+- topic должен точно отражать содержание документа;
+- author содержит автора документа;
+- sign_position и signer содержат данные того же автора.
 
-5. Визуальные особенности
-Лаконичный вид без абзацного отступа. Интервал 1,15. Табличная шапка «Кому / От кого». Подпись по центру. Нижний колонтитул с названием документа и датой.
+Разделяй основной текст ПО СМЫСЛУ независимо от исходных переносов:
+
+1. Событие, основание или выполненная работа.
+2. Выявленные факты и результаты.
+3. Последствия, выводы, предложения и сроки.
+
+Если эти части присутствуют, paragraphs должен содержать
+не менее трёх отдельных элементов.
+
+Не объединяй весь документ в один абзац.
+Не нарушай причинно-следственный и хронологический порядок.
+Каждый элемент paragraphs станет отдельным абзацем DOCX.
+
+Разделяй основной текст ПО СМЫСЛУ независимо от исходных переносов:
+
+1. Событие, основание или выполненная работа.
+2. Выявленные факты и результаты.
+3. Последствия, выводы, предложения и сроки.
+
+Если эти части присутствуют, paragraphs должен содержать не менее
+трёх отдельных элементов. Не меняй логический порядок.
+
 """
 
 
-def create_new_style(text: str, filename: str = "new_style.docx") -> str:
+
+def get_styles(document):
+    styles = document.styles
+
+    def create_style(name, font_name, size, alignment, bold=False):
+        if name in styles:
+            style = styles[name]
+        else:
+            style = styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH)
+
+        style.font.name = font_name
+        style.font.size = Pt(size)
+        style.font.bold = bold
+        style._element.rPr.rFonts.set(qn("w:eastAsia"), font_name)
+
+        style.paragraph_format.alignment = alignment
+        style.paragraph_format.first_line_indent = Cm(0)
+        style.paragraph_format.line_spacing = 1.15
+
+        return style
+
+    return {
+        "normal": create_style(
+            "Обычный",
+            "Arial",
+            12,
+            WD_ALIGN_PARAGRAPH.LEFT,
+        ),
+        "heading": create_style(
+            "Заголовок1",
+            "Arial",
+            12,
+            WD_ALIGN_PARAGRAPH.LEFT,
+            bold=True,
+        ),
+        "recipient": create_style(
+            "Адресат",
+            "Arial",
+            12,
+            WD_ALIGN_PARAGRAPH.LEFT,
+        ),
+        "text": create_style(
+            "Текст1",
+            "Arial",
+            12,
+            WD_ALIGN_PARAGRAPH.LEFT,
+        ),
+        "signature": create_style(
+            "Подпись1",
+            "Arial",
+            12,
+            WD_ALIGN_PARAGRAPH.CENTER,
+        ),
+        "footer": create_style(
+            "Колонтитул",
+            "Arial",
+            10,
+            WD_ALIGN_PARAGRAPH.CENTER,
+        ),
+    }
+
+
+def clean_json(text):
+    text = text.strip()
+    text = re.sub(r"^```json\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^```\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    return json.loads(text)
+
+
+def set_cell_text(cell, text, bold=False):
+    cell.text = ""
+    paragraph = cell.paragraphs[0]
+    paragraph.style = "Адресат"
+    run = paragraph.add_run(text or "")
+    run.font.name = "Arial"
+    run.font.size = Pt(12)
+    run.bold = bold
+    run._element.rPr.rFonts.set(qn("w:eastAsia"), "Arial")
+
+
+def remove_table_borders(table):
+    table_properties = table._tbl.tblPr
+    borders = table_properties.first_child_found_in("w:tblBorders")
+
+    if borders is None:
+        borders = OxmlElement("w:tblBorders")
+        table_properties.append(borders)
+
+    for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        tag = f"w:{edge}"
+        border = borders.find(qn(tag))
+
+        if border is None:
+            border = OxmlElement(tag)
+            borders.append(border)
+
+        border.set(qn("w:val"), "nil")
+
+
+def create_new_style(
+    text: str,
+    filename: str = "new_style.docx",
+) -> str:
+    if not text or not text.strip():
+        raise ValueError("Текст документа не может быть пустым.")
+
+    text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+
     client = OpenAI(
         api_key=os.getenv("OPENAI_API_KEY"),
         base_url=os.getenv("OPENAI_BASE_URL"),
     )
-
+    text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
     response = client.chat.completions.create(
         model=os.getenv("OPENAI_MODEL"),
         messages=[
             {"role": "system", "content": PROMPT},
             {"role": "user", "content": text},
         ],
+        response_format={"type": "json_object"},
     )
 
-    doc = Document()
+    data = clean_json(response.choices[0].message.content)
+    document = Document()
+    styles = get_styles(document)
 
-    for line in response.choices[0].message.content.splitlines():
-        line = line.strip()
+    section = document.sections[0]
+    section.top_margin = Cm(1.5)
+    section.bottom_margin = Cm(1.5)
+    section.left_margin = Cm(2.5)
+    section.right_margin = Cm(2)
 
-        if line.startswith("#"):
-            doc.add_heading(line.lstrip("# ").strip(), level=1)
-        elif line.startswith("-"):
-            doc.add_paragraph(line.lstrip("- ").strip(), style="List Bullet")
-        elif line:
-            doc.add_paragraph(line)
+    # Тема сверху слева
+    if data.get("topic"):
+        topic = document.add_paragraph(style=styles["heading"])
+        topic.add_run(data["topic"])
 
-    doc.save(filename)
+    # Табличный блок «Кому / От кого»
+    table = document.add_table(rows=2, cols=2)
+    table.autofit = False
+    table.columns[0].width = Cm(7.5)
+    table.columns[1].width = Cm(7.5)
+
+    remove_table_borders(table)
+
+    set_cell_text(table.cell(0, 0), "Кому:", bold=True)
+    set_cell_text(table.cell(0, 1), data.get("recipient", ""))
+
+    set_cell_text(table.cell(1, 0), "От кого:", bold=True)
+    set_cell_text(table.cell(1, 1), data.get("author", ""))
+
+
+    # Основной текст
+    for paragraph_text in data.get("paragraphs", []):
+        if paragraph_text.strip():
+            paragraph = document.add_paragraph(style=styles["text"])
+            paragraph.add_run(paragraph_text.strip())
+
+    # Подпись по центру
+    document.add_paragraph()
+
+    if data.get("sign_position"):
+        paragraph = document.add_paragraph(style=styles["signature"])
+        paragraph.add_run(data["sign_position"])
+
+    paragraph = document.add_paragraph(style=styles["signature"])
+    paragraph.add_run("____________________")
+
+    if data.get("signer"):
+        paragraph = document.add_paragraph(style=styles["signature"])
+        paragraph.add_run(data["signer"])
+
+    # Нижний колонтитул с названием документа и датой
+    footer = section.footer.paragraphs[0]
+    footer.style = styles["footer"]
+
+    footer_text = data.get("topic") or data.get("document_type", "")
+    footer.add_run(f"{footer_text} | {data.get('date', '')}")
+
+    document.save(filename)
     return filename

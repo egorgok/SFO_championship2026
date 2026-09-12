@@ -232,17 +232,27 @@ def create_classic(text: str, filename: str = "classic.docx") -> str:
 
     # Адресат справа
     recipient = data.get("recipient", [])
-    if recipient:
-        paragraph = document.add_paragraph(style=styles["recipient"])
-        paragraph.paragraph_format.line_spacing = 1.5
-        paragraph.paragraph_format.first_line_indent = Cm(0)
+    # Шапка справа
+    recipient = data.get("recipient", [])
 
-        for index, line in enumerate(recipient):
-            if line:
-                if index == 0:
-                    paragraph.add_run(f"{line}\n")
-                else:
-                    paragraph.add_run(f"{line}\n")
+    if isinstance(recipient, str):
+        recipient = recipient.splitlines()
+
+    recipient = [str(line).strip() for line in recipient if str(line).strip()]
+
+    for index, line in enumerate(recipient):
+        paragraph = document.add_paragraph(style=styles["recipient"])
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        paragraph.paragraph_format.first_line_indent = Cm(0)
+        paragraph.paragraph_format.left_indent = Cm(8)
+
+        # Расстояние между строками шапки
+        paragraph.paragraph_format.space_after = (
+            Pt(8) if index < len(recipient) - 1 else Pt(18)
+        )
+
+        paragraph.add_run(line)
+
 
 
     # Дата и номер

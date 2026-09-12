@@ -9,6 +9,7 @@ from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from datetime import datetime
 from docx.shared import Cm, Pt
 
 
@@ -185,16 +186,35 @@ def clean_json(text):
     return json.loads(text)
 
 
-def create_classic(text: str, filename: str = "classic.docx") -> str:
+def _make_number(document_type: str) -> str:
+    """Номер вида 1-СЗ, 1-ДЗ, 1-С, 1-П..."""
+    t = (document_type or "").upper()
+
+    if "ДОКЛАДН" in t:
+        suffix = "ДЗ"
+    elif "СЛУЖЕБН" in t:
+        suffix = "СЗ"
+    elif "СПРАВК" in t:
+        suffix = "С"
+    elif "ПИСЬМ" in t:
+        suffix = "П"
+    else:
+        suffix = "Д"  # документ по умолчанию
+
+    return f"1-{suffix}"
+
+
+def process_text(text: str) -> dict:
+    """LLM: черновик - структурированный JSON"""
     if not text or not text.strip():
         raise ValueError("Текст документа не может быть пустым.")
-    
+
     text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+
     client = OpenAI(
         api_key=os.getenv("OPENAI_API_KEY"),
         base_url=os.getenv("OPENAI_BASE_URL"),
     )
-    text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
     response = client.chat.completions.create(
         model=os.getenv("OPENAI_MODEL"),
         messages=[
@@ -205,6 +225,19 @@ def create_classic(text: str, filename: str = "classic.docx") -> str:
     )
 
     data = clean_json(response.choices[0].message.content)
+
+    # Автозаполнение
+    if not (data.get("date") or "").strip():
+        data["date"] = datetime.now().strftime("%d.%m.%Y")
+
+    if not (data.get("number") or "").strip():
+        data["number"] = _make_number(data.get("document_type"))
+
+    return data
+
+
+def build_docx(data: dict, filename: str = "classic.docx") -> str:
+    """Структурированные данные - DOCX"""
     document = Document()
     styles = get_styles(document)
 
@@ -222,7 +255,7 @@ def create_classic(text: str, filename: str = "classic.docx") -> str:
     # Верхний колонтитул с названием организации
     header = section.header.paragraphs[0]
     header.style = styles["footer"]
-    header.text = data.get("organization", "")
+    header.text = data.get("organization", "") or ""
 
     # Нижний колонтитул с номером страницы
     footer = section.footer.paragraphs[0]
@@ -232,12 +265,8 @@ def create_classic(text: str, filename: str = "classic.docx") -> str:
 
     # Адресат справа
     recipient = data.get("recipient", [])
-    # Шапка справа
-    recipient = data.get("recipient", [])
-
     if isinstance(recipient, str):
         recipient = recipient.splitlines()
-
     recipient = [str(line).strip() for line in recipient if str(line).strip()]
 
     for index, line in enumerate(recipient):
@@ -245,22 +274,17 @@ def create_classic(text: str, filename: str = "classic.docx") -> str:
         paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
         paragraph.paragraph_format.first_line_indent = Cm(0)
         paragraph.paragraph_format.left_indent = Cm(8)
-
-        # Расстояние между строками шапки
         paragraph.paragraph_format.space_after = (
             Pt(8) if index < len(recipient) - 1 else Pt(18)
         )
-
         paragraph.add_run(line)
-
-
 
     # Дата и номер
     paragraph = document.add_paragraph(style=styles["signature"])
     paragraph.paragraph_format.first_line_indent = Cm(0)
     paragraph.add_run(
-        f"Дата: {data.get('date', '')}    "
-        f"Номер: {data.get('number', '')}"
+        f"Дата: {data.get('date', '') or ''}    "
+        f"Номер: {data.get('number', '') or ''}"
     )
 
     # Тип документа
@@ -277,10 +301,10 @@ def create_classic(text: str, filename: str = "classic.docx") -> str:
         title.add_run(data["title"])
 
     # Основной текст
-    for paragraph_text in data.get("paragraphs", []):
-        if paragraph_text.strip():
+    for paragraph_text in data.get("paragraphs", []) or []:
+        if str(paragraph_text).strip():
             paragraph = document.add_paragraph(style=styles["text"])
-            paragraph.add_run(paragraph_text.strip())
+            paragraph.add_run(str(paragraph_text).strip())
 
     # Подпись слева
     document.add_paragraph()
@@ -301,3 +325,9 @@ def create_classic(text: str, filename: str = "classic.docx") -> str:
 
     document.save(filename)
     return filename
+
+
+def create_classic(text: str, filename: str = "classic.docx") -> str:
+    """Полный цикл: текст - LLM - DOCX (для обратной совместимости)."""
+    data = process_text(text)
+    return build_docx(data, filename)

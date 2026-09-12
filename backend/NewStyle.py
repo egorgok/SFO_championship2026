@@ -8,6 +8,7 @@ from docx import Document
 from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
+from datetime import datetime
 from docx.oxml import OxmlElement
 from docx.shared import Cm, Pt
 
@@ -61,18 +62,7 @@ PROMPT = """
 Не объединяй весь документ в один абзац.
 Не нарушай причинно-следственный и хронологический порядок.
 Каждый элемент paragraphs станет отдельным абзацем DOCX.
-
-Разделяй основной текст ПО СМЫСЛУ независимо от исходных переносов:
-
-1. Событие, основание или выполненная работа.
-2. Выявленные факты и результаты.
-3. Последствия, выводы, предложения и сроки.
-
-Если эти части присутствуют, paragraphs должен содержать не менее
-трёх отдельных элементов. Не меняй логический порядок.
-
 """
-
 
 
 def get_styles(document):
@@ -174,10 +164,26 @@ def remove_table_borders(table):
         border.set(qn("w:val"), "nil")
 
 
-def create_new_style(
-    text: str,
-    filename: str = "new_style.docx",
-) -> str:
+def _make_number(document_type: str) -> str:
+    """Номер вида 1-СЗ, 1-ДЗ, 1-С, 1-П..."""
+    t = (document_type or "").upper()
+
+    if "ДОКЛАДН" in t:
+        suffix = "ДЗ"
+    elif "СЛУЖЕБН" in t:
+        suffix = "СЗ"
+    elif "СПРАВК" in t:
+        suffix = "С"
+    elif "ПИСЬМ" in t:
+        suffix = "П"
+    else:
+        suffix = "Д"  # документ по умолчанию
+
+    return f"1-{suffix}"
+
+
+def process_text(text: str) -> dict:
+    """LLM: черновик - структурированный JSON."""
     if not text or not text.strip():
         raise ValueError("Текст документа не может быть пустым.")
 
@@ -187,7 +193,6 @@ def create_new_style(
         api_key=os.getenv("OPENAI_API_KEY"),
         base_url=os.getenv("OPENAI_BASE_URL"),
     )
-    text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
     response = client.chat.completions.create(
         model=os.getenv("OPENAI_MODEL"),
         messages=[
@@ -198,6 +203,19 @@ def create_new_style(
     )
 
     data = clean_json(response.choices[0].message.content)
+    
+    # Автозаполнение
+    if not (data.get("date") or "").strip():
+        data["date"] = datetime.now().strftime("%d.%m.%Y")
+    
+    if not (data.get("number") or "").strip():
+        data["number"] = _make_number(data.get("document_type"))
+    
+    return data
+
+
+def build_docx(data: dict, filename: str = "new_style.docx") -> str:
+    """Структурированные данные - DOCX"""
     document = Document()
     styles = get_styles(document)
 
@@ -221,17 +239,16 @@ def create_new_style(
     remove_table_borders(table)
 
     set_cell_text(table.cell(0, 0), "Кому:", bold=True)
-    set_cell_text(table.cell(0, 1), data.get("recipient", ""))
+    set_cell_text(table.cell(0, 1), data.get("recipient", "") or "")
 
     set_cell_text(table.cell(1, 0), "От кого:", bold=True)
-    set_cell_text(table.cell(1, 1), data.get("author", ""))
-
+    set_cell_text(table.cell(1, 1), data.get("author", "") or "")
 
     # Основной текст
-    for paragraph_text in data.get("paragraphs", []):
-        if paragraph_text.strip():
+    for paragraph_text in data.get("paragraphs", []) or []:
+        if str(paragraph_text).strip():
             paragraph = document.add_paragraph(style=styles["text"])
-            paragraph.add_run(paragraph_text.strip())
+            paragraph.add_run(str(paragraph_text).strip())
 
     # Подпись по центру
     document.add_paragraph()
@@ -247,12 +264,17 @@ def create_new_style(
         paragraph = document.add_paragraph(style=styles["signature"])
         paragraph.add_run(data["signer"])
 
-    # Нижний колонтитул с названием документа и датой
+    # Нижний колонтитул
     footer = section.footer.paragraphs[0]
     footer.style = styles["footer"]
-
-    footer_text = data.get("topic") or data.get("document_type", "")
-    footer.add_run(f"{footer_text} | {data.get('date', '')}")
+    footer_text = data.get("topic") or data.get("document_type", "") or ""
+    footer.add_run(f"{footer_text} | {data.get('date', '') or ''}")
 
     document.save(filename)
     return filename
+
+
+def create_new_style(text: str, filename: str = "new_style.docx") -> str:
+    """Полный цикл: текст - LLM - DOCX (для обратной совместимости)."""
+    data = process_text(text)
+    return build_docx(data, filename)

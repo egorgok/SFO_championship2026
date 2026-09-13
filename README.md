@@ -1,7 +1,7 @@
 Документация по бэкэнду есть в api.kabanchiki.mooo.com/docs
 Документация по шаблонам на втором этапе создания документа
 
-[Скринкаст](https://disk.yandex.ru/i/FD1JumqpOqcrEg) [Сайт с решением](https://kabanchiki.mooo.com/) Презентация (тут ссылку на гитверсе прямую)
+[Скринкаст](https://disk.yandex.ru/i/FD1JumqpOqcrEg)      [Сайт с решением](https://kabanchiki.mooo.com/)         Презентация (тут ссылку на гитверсе прямую)
 
 
 

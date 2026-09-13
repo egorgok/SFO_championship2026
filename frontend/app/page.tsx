@@ -677,7 +677,7 @@ export default function Home() {
                         text-left p-3 sm:p-4 rounded-xl transition focus-ring
                         ${
                           docType === d.id
-                            ? "glass-strong ring-2 ring-blue-400/60"
+                            ? "glass-strong !ring-2 !ring-blue-400/60"
                             : "glass hover:bg-white/10"
                         }
                       `}
@@ -708,7 +708,7 @@ export default function Home() {
                         relative text-left p-3 sm:p-4 rounded-xl transition
                         ${
                           template === t.id
-                            ? "glass-strong ring-2 ring-violet-400/60"
+                            ? "glass-strong !ring-2 !ring-violet-400/60"
                             : "glass hover:bg-white/10"
                         }
                       `}
@@ -995,8 +995,8 @@ export default function Home() {
                         )}
                       </div>
                       <p className="text-[11px] text-white/35 text-center">
-                        Макет приближён к итоговому DOCX. Правки слева сразу
-                        отражаются здесь.
+                        Макет приближён к итоговому DOCX. Правки отображаются
+                        сразу.
                       </p>
                     </div>
                   </div>

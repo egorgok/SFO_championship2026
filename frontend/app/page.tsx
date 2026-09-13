@@ -632,7 +632,7 @@ export default function Home() {
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   placeholder={
-                    "Пример:\n\nКому: Начальнику отдела\n\nПроверил склад 10.03.2026.\nОбнаружил недостачу.\n\nПрошу провести инвентаризацию."
+                    "Кому: Начальнику отдела\n\nПроверил склад 10.03.2026.\nОбнаружил недостачу.\n\nПрошу провести инвентаризацию."
                   }
                   rows={12}
                   className="w-full rounded-xl bg-black/30 border border-white/10 p-3 sm:p-4 text-sm sm:text-base text-white placeholder:text-white/30 focus:border-blue-400/50 focus:ring-1 focus:ring-blue-400/30 outline-none resize-y min-h-[200px] focus-ring font-mono leading-relaxed"
@@ -1030,7 +1030,7 @@ export default function Home() {
       </main>
 
       <footer className="relative z-10 px-4 py-4 text-center text-[11px] text-white/30">
-        MVP «Документ за 3 шага» · Первенство России 2026 · Адаптивно 320–1920px
+        MVP «Документ за 3 шага»
       </footer>
 
       {/* Template info modal */}

@@ -33,7 +33,7 @@ app.add_middleware(
 OUTPUT_DIR = Path("generated")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-TEMPLATE_DIR = Path("Shablones")
+TEMPLATE_DIR = Path("template")
 
 TEMPLATES = {
     "classic": TEMPLATE_DIR / "classic.docx",

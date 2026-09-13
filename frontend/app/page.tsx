@@ -27,34 +27,51 @@ interface TemplateInfo {
   };
 }
 
-/** Данные классического шаблона (из LLM / редактируемые) */
-interface ClassicData {
-  organization: string;
-  document_type: string;
-  recipient: string[];
-  date: string;
-  number: string;
-  title: string;
+/** Все возможные скалярные метки (кроме paragraphs — они отдельно) */
+type LabelKey =
+  | "organization"
+  | "document_type"
+  | "topic"
+  | "recipient_job"
+  | "recipient_name"
+  | "recipient"
+  | "author"
+  | "date"
+  | "number"
+  | "sign_position"
+  | "signer";
+
+/** Человекочитаемые подписи для каждой метки */
+const LABELS: Record<LabelKey, string> = {
+  organization: "Название организации",
+  document_type: "Тип документа",
+  topic: "Тема документа",
+  recipient_job: "Должность получателя",
+  recipient_name: "Имя получателя",
+  recipient: "Получатель",
+  author: "Автор документа",
+  date: "Дата",
+  number: "Номер документа",
+  sign_position: "Должность подписанта",
+  signer: "Подписант",
+};
+
+/** Данные шаблона: любые из LABELS + paragraphs */
+interface TemplateFormData {
+  organization?: string;
+  document_type?: string;
+  topic?: string;
+  recipient_job?: string;
+  recipient_name?: string;
+  recipient?: string;
+  author?: string;
+  date?: string;
+  number?: string;
+  sign_position?: string;
+  signer?: string;
   paragraphs: string[];
-  sign_position: string;
-  signer: string;
 }
 
-/** Данные современного шаблона */
-interface ModernData {
-  organization: string;
-  document_type: string;
-  topic: string;
-  recipient: string;
-  author: string;
-  date: string;
-  number: string;
-  paragraphs: string[];
-  sign_position: string;
-  signer: string;
-}
-
-type StructuredData = ClassicData | ModernData;
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://127.0.0.1:8000";
@@ -154,118 +171,118 @@ function prepareTextForApi(raw: string): string {
   return t.trim();
 }
 
-function isClassic(data: StructuredData): data is ClassicData {
-  return Array.isArray((data as ClassicData).recipient);
-}
-
 // ——— Preview components ———
 
-function ClassicPreview({ data }: { data: ClassicData }) {
-  const recipient = (data.recipient || []).filter((l) => l.trim());
+function ClassicPreview({ data }: { data: TemplateFormData }) {
+  const recipientLines = (data.recipient || "")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
   return (
     <div
       className="bg-white text-black rounded-lg shadow-2xl overflow-hidden text-[13px] leading-[1.5]"
       style={{ fontFamily: '"Times New Roman", Times, serif' }}
     >
-      <div className="text-center text-[11px] text-neutral-600 border-b border-neutral-200 py-2 px-4">
-        {data.organization || "— организация —"}
-      </div>
-
-      <div className="p-6 min-h-[420px]">
-        <div className="text-right mb-4 space-y-0.5 pl-[40%]">
-          {recipient.length > 0 ? (
-            recipient.map((line, i) => <div key={i}>{line}</div>)
+      <div className="p-6 min-h-[460px]">
+        {/* Адресат — блок справа, отступ ~половина ширины */}
+        <div className="ml-auto w-[55%] text-right mb-6 space-y-0.5">
+          {recipientLines.length > 0 ? (
+            recipientLines.map((line, i) => <div key={i}>{line}</div>)
           ) : (
             <div className="text-neutral-400">Адресат</div>
           )}
         </div>
 
-        <div className="mb-4 text-[12px]">
-          Дата: {data.date || "—"} &nbsp;&nbsp; Номер: {data.number || "—"}
+        {/* Дата / Номер — слева, одной строкой */}
+        <div className="mb-4">
+          Дата: {data.date || "—"} Номер: {data.number || "—"}
         </div>
 
-        <div className="text-center font-bold mb-1 uppercase tracking-wide">
-          {data.document_type || "СЛУЖЕБНЫЙ ДОКУМЕНТ"}
+        {/* Тема — по центру, жирным */}
+        <div className="text-center font-bold mb-2">
+          {data.topic || data.document_type || "ТЕМА ДОКУМЕНТА"}
         </div>
-        {data.title && (
-          <div className="text-center font-bold mb-4">{data.title}</div>
-        )}
 
-        <div className="space-y-3 text-justify">
-          {(data.paragraphs || [])
-            .filter((p) => p.trim())
-            .map((p, i) => (
-              <p key={i} className="indent-8 first:mt-0">
-                {p}
-              </p>
-            ))}
-          {(data.paragraphs || []).filter((p) => p.trim()).length === 0 && (
+        {/* Абзацы — с отступом первой строки */}
+        <div className="space-y-2 text-justify">
+          {(data.paragraphs || []).filter((p) => p.trim()).length > 0 ? (
+            (data.paragraphs || [])
+              .filter((p) => p.trim())
+              .map((p, i) => (
+                <p key={i} className="indent-8">{p}</p>
+              ))
+          ) : (
             <p className="text-neutral-400 indent-8">Текст документа…</p>
           )}
         </div>
 
-        <div className="mt-8 space-y-1">
+        {/* Подпись */}
+        <div className="mt-10 space-y-1">
           {data.sign_position && <div>{data.sign_position}</div>}
-          <div>____________________</div>
+          <div className="w-48 border-b border-black">&nbsp;</div>
           {data.signer && <div>{data.signer}</div>}
         </div>
-      </div>
-
-      <div className="text-center text-[10px] text-neutral-500 border-t border-neutral-200 py-1.5">
-        1
       </div>
     </div>
   );
 }
 
-function ModernPreview({ data }: { data: ModernData }) {
+function ModernPreview({ data }: { data: TemplateFormData }) {
+  const recipientText = [data.recipient_job, data.recipient_name]
+    .filter(Boolean)
+    .join(" ") || data.recipient || "—";
+
   return (
     <div
       className="bg-white text-black rounded-lg shadow-2xl overflow-hidden text-[12px] leading-[1.35]"
       style={{ fontFamily: "Arial, Helvetica, sans-serif" }}
     >
-      <div className="p-5 min-h-[420px]">
-        {data.topic ? (
-          <div className="font-bold mb-3 text-[13px]">{data.topic}</div>
-        ) : (
-          <div className="font-bold mb-3 text-neutral-400 text-[13px]">
-            Тема документа
-          </div>
-        )}
-
-        <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 mb-4 text-[12px]">
-          <div className="font-bold">Кому:</div>
-          <div>
-            {data.recipient || <span className="text-neutral-400">—</span>}
-          </div>
-          <div className="font-bold">От кого:</div>
-          <div>
-            {data.author || <span className="text-neutral-400">—</span>}
-          </div>
+      <div className="p-5 min-h-[460px]">
+        {/* Тема */}
+        <div className="font-bold mb-3">
+          {data.topic || data.document_type || "Тема документа"}
         </div>
 
+        {/* Таблица Кому / От кого */}
+        <table className="w-full border-collapse mb-5 text-[12px]">
+          <tbody>
+            <tr>
+              <td className="border border-black px-2 py-1 w-[35%] align-top">
+                Кому:
+              </td>
+              <td className="border border-black px-2 py-1 align-top">
+                {recipientText}
+              </td>
+            </tr>
+            <tr>
+              <td className="border border-black px-2 py-1 align-top">
+                От кого:
+              </td>
+              <td className="border border-black px-2 py-1 align-top">
+                {data.author || "—"}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* Абзацы — без отступа первой строки */}
         <div className="space-y-2.5">
-          {(data.paragraphs || [])
-            .filter((p) => p.trim())
-            .map((p, i) => (
-              <p key={i}>{p}</p>
-            ))}
-          {(data.paragraphs || []).filter((p) => p.trim()).length === 0 && (
+          {(data.paragraphs || []).filter((p) => p.trim()).length > 0 ? (
+            (data.paragraphs || [])
+              .filter((p) => p.trim())
+              .map((p, i) => <p key={i}>{p}</p>)
+          ) : (
             <p className="text-neutral-400">Текст документа…</p>
           )}
         </div>
 
-        <div className="mt-8 text-center space-y-1">
+        {/* Подпись — по центру */}
+        <div className="mt-10 text-center space-y-1">
           {data.sign_position && <div>{data.sign_position}</div>}
-          <div>____________________</div>
+          <div className="mx-auto w-48 border-b border-black">&nbsp;</div>
           {data.signer && <div>{data.signer}</div>}
         </div>
-      </div>
-
-      <div className="text-center text-[10px] text-neutral-500 border-t border-neutral-200 py-1.5">
-        {(data.topic || data.document_type || "Документ") +
-          " | " +
-          (data.date || "")}
       </div>
     </div>
   );
@@ -284,7 +301,7 @@ export default function Home() {
   const [processing, setProcessing] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<StructuredData | null>(null);
+  const [data, setData] = useState<TemplateFormData | null>(null);
   const [documentId, setDocumentId] = useState<string | null>(null);
   const [textCollapsed, setTextCollapsed] = useState(false);
   const [templateInfoId, setTemplateInfoId] = useState<
@@ -342,15 +359,12 @@ export default function Home() {
         : "";
       const payloadText = typeHint + prepareTextForApi(draft);
 
-      // Process: используем legacy-эндпоинты —
-      // /template/process на бэке объявлен ПОСЛЕ /template/{template_name}
-      // и может отдавать 422 (template_name="process" не в Literal).
       const processUrl =
-  template === "org_classic"
-    ? `${API_BASE}/classic/process`
-    : template === "org_modern"
-      ? `${API_BASE}/new-style/process`
-      : `${API_BASE}/template/process`;
+        template === "org_classic"
+          ? `${API_BASE}/classic/process`
+          : template === "org_modern"
+            ? `${API_BASE}/new-style/process`
+            : `${API_BASE}/template/process`;
 
       const res = await fetch(processUrl, {
         method: "POST",
@@ -363,72 +377,52 @@ export default function Home() {
         try {
           const errJson = await res.json();
           if (errJson?.detail) detail = String(errJson.detail);
-        } catch {
-          /* ignore */
-        }
+        } catch {}
         throw new Error(detail);
       }
 
       const json = await res.json();
-      console.log(json);
-      // const parsedData = template === "custom" ? json.data : json;
-      const parsedData = json;
-      // Бэкенд отдаёт TemplateData:
-      // organization, document_type, topic, recipient (str|list),
-      // author, date, number, paragraphs, sign_position, signer
+      console.log("[process] template =", template);
+      console.log("[process] raw json =", json);
 
-      if (!parsedData) {
-        throw new Error("Backend не вернул данные документа");
-      }
-
-      const recipientRaw = parsedData.recipient;
-      const recipientList: string[] = Array.isArray(recipientRaw)
-        ? recipientRaw.map(String).map((s: string) => s.trim()).filter(Boolean)
-        : String(recipientRaw || "")
-            .split("\n")
-            .map((s: string) => s.trim())
-            .filter(Boolean);
-
+      let raw: any;
       if (template === "custom") {
         setDocumentId(json.document_id);
-        setData(json);
-      }
-      else if (template === "org_classic") {
-        const c: ClassicData = {
-          organization: parsedData.organization || "",
-          document_type: parsedData.document_type || "",
-          recipient: recipientList.length ? recipientList : [""],
-          date: parsedData.date || "",
-          number: parsedData.number || "",
-          title: parsedData.topic || parsedData.title || "",
-          paragraphs:
-            Array.isArray(parsedData.paragraphs) && parsedData.paragraphs.length
-              ? parsedData.paragraphs
-              : [""],
-          sign_position: parsedData.sign_position || "",
-          signer: parsedData.signer || "",
-        };
-        setData(c);
+        raw = json.data;
       } else {
-        const m: ModernData = {
-          organization: parsedData.organization || "",
-          document_type: parsedData.document_type || "",
-          topic: parsedData.topic || parsedData.title || "",
-          recipient: Array.isArray(recipientRaw)
-            ? recipientList.join(", ")
-            : String(recipientRaw || ""),
-          author: parsedData.author || "",
-          date: parsedData.date || "",
-          number: parsedData.number || "",
-          paragraphs:
-            Array.isArray(parsedData.paragraphs) && parsedData.paragraphs.length
-              ? parsedData.paragraphs
-              : [""],
-          sign_position: parsedData.sign_position || "",
-          signer: parsedData.signer || "",
-        };
-        setData(m);
+        raw = json;
       }
+
+      if (!raw) throw new Error("Backend не вернул данные документа");
+
+      // Приводим recipient к строке, если пришёл массивом (classic)
+      let recipient = raw.recipient;
+      if (Array.isArray(recipient)) {
+        recipient = recipient.map(String).map((s) => s.trim()).filter(Boolean).join("\n");
+      } else if (recipient == null) {
+        recipient = "";
+      } else {
+        recipient = String(recipient);
+      }
+
+      const parsed: TemplateFormData = {
+        organization: raw.organization ?? "",
+        document_type: raw.document_type ?? "",
+        topic: raw.topic ?? "",
+        recipient_job: raw.recipient_job ?? "",
+        recipient_name: raw.recipient_name ?? "",
+        recipient,
+        author: raw.author ?? "",
+        date: raw.date ?? "",
+        number: raw.number ?? "",
+        sign_position: raw.sign_position ?? "",
+        signer: raw.signer ?? "",
+        paragraphs: Array.isArray(raw.paragraphs) && raw.paragraphs.length
+          ? raw.paragraphs.map(String)
+          : [""],
+      };
+
+      setData(parsed);
     } catch (e) {
       setError(
         e instanceof Error
@@ -448,15 +442,11 @@ export default function Home() {
     const payload = {
       organization: data.organization || "",
       document_type: data.document_type || "",
-      topic: isClassic(data)
-        ? data.title || ""
-        : (data as ModernData).topic || "",
-      recipient: isClassic(data)
-        ? data.recipient || []
-        : (data as ModernData).recipient || "",
-      author: isClassic(data)
-        ? ""
-        : (data as ModernData).author || "",
+      topic: data.topic || "",
+      recipient_job: data.recipient_job || "",
+      recipient_name: data.recipient_name || "",
+      recipient: data.recipient || "",
+      author: data.author || "",
       date: data.date || "",
       number: data.number || "",
       paragraphs: data.paragraphs || [],
@@ -464,33 +454,49 @@ export default function Home() {
       signer: data.signer || "",
     };
 
-    const res = await fetch(
-      `${API_BASE}/template/data/${documentId}`,
-      {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      }
-    );
+    const res = await fetch(`${API_BASE}/template/data/${documentId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
     if (!res.ok) {
       let detail = `Ошибка сохранения (${res.status})`;
-
       try {
         const errJson = await res.json();
-        if (errJson?.detail) {
-          detail = String(errJson.detail);
-        }
-      } catch {
-        // ignore
-      }
-
+        if (errJson?.detail) detail = String(errJson.detail);
+      } catch {}
       throw new Error(detail);
     }
 
     return await res.json();
+  };
+
+  const handleDownloadGuidebook = async () => {
+    try {
+      setError(null);
+      const res = await fetch(`${API_BASE}/guidebook`, { method: "GET" });
+      if (!res.ok) {
+        throw new Error(`Не удалось скачать гайдбук (${res.status})`);
+      }
+
+      // Пытаемся взять имя файла из Content-Disposition
+      const cd = res.headers.get("Content-Disposition") || "";
+      const match = cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
+      const filename = match ? decodeURIComponent(match[1]) : "guidebook.docx";
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка скачивания гайдбука");
+    }
   };
 
   const handleDownload = async () => {
@@ -505,24 +511,16 @@ export default function Home() {
 
       if (template === "custom") {
         await saveTemplateData();
-        if (!customTemplateFile) {
-          throw new Error("Выберите файл шаблона");
-        }
-
-        if (!documentId) {
-          throw new Error("Документ ещё не обработан");
-        }
+        if (!customTemplateFile) throw new Error("Выберите файл шаблона");
+        if (!documentId) throw new Error("Документ ещё не обработан");
 
         const formData = new FormData();
         formData.append("template", customTemplateFile);
 
-        const res = await fetch(
-          `${API_BASE}/custom-template/${documentId}`,
-          {
-            method: "POST",
-            body: formData,
-          }
-        );
+        const res = await fetch(`${API_BASE}/custom-template/${documentId}`, {
+          method: "POST",
+          body: formData,
+        });
 
         if (!res.ok) {
           const text = await res.text();
@@ -530,58 +528,61 @@ export default function Home() {
         }
 
         const blob = await res.blob();
-
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = customTemplateFile.name.replace(
-          /\.docx$/i,
-          "_generated.docx"
-        );
+        a.download = customTemplateFile.name.replace(/\.docx$/i, "_generated.docx");
         document.body.appendChild(a);
         a.click();
         a.remove();
         URL.revokeObjectURL(url);
-
         return;
-      } else {
-        // classic / modern — именованный шаблон на бэке
-        const tpl = TEMPLATES.find((t) => t.id === template);
-        if (!tpl) throw new Error("Шаблон не найден");
-        url = `${API_BASE}/template/${tpl.backendName}/generate`;
+      }
+
+      if (template === "org_classic") {
+        url = `${API_BASE}/classic/generate`;
         headers = { "Content-Type": "application/json" };
-        // Приводим к TemplateData бэкенда
-        const payload = {
+        body = JSON.stringify({
           organization: data.organization || "",
           document_type: data.document_type || "",
-          topic: isClassic(data) ? (data.title || "") : ((data as ModernData).topic || ""),
-          recipient: isClassic(data)
-            ? (data.recipient || [])
-            : ((data as ModernData).recipient || ""),
-          author: isClassic(data) ? "" : ((data as ModernData).author || ""),
+          recipient: (data.recipient || "")
+            .split("\n")
+            .map((s) => s.trim())
+            .filter(Boolean),
+          date: data.date || "",
+          number: data.number || "",
+          title: data.topic || "",
+          paragraphs: data.paragraphs || [],
+          sign_position: data.sign_position || "",
+          signer: data.signer || "",
+        });
+      } else {
+        url = `${API_BASE}/new-style/generate`;
+        headers = { "Content-Type": "application/json" };
+        body = JSON.stringify({
+          organization: data.organization || "",
+          document_type: data.document_type || "",
+          topic: data.topic || "",
+          recipient_job: data.recipient_job || "",
+          recipient_name: data.recipient_name || "",
+          recipient: data.recipient || "",
+          author: data.author || "",
           date: data.date || "",
           number: data.number || "",
           paragraphs: data.paragraphs || [],
           sign_position: data.sign_position || "",
           signer: data.signer || "",
-        };
-        body = JSON.stringify(payload);
+        });
       }
 
-      const res = await fetch(url, {
-        method: "POST",
-        headers,
-        body,
-      });
+      const res = await fetch(url, { method: "POST", headers, body });
 
       if (!res.ok) {
         let detail = `Ошибка генерации (${res.status})`;
         try {
           const errJson = await res.json();
           if (errJson?.detail) detail = String(errJson.detail);
-        } catch {
-          /* ignore */
-        }
+        } catch {}
         throw new Error(detail);
       }
 
@@ -598,9 +599,7 @@ export default function Home() {
       a.click();
       URL.revokeObjectURL(objectUrl);
     } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Не удалось сформировать DOCX"
-      );
+      setError(e instanceof Error ? e.message : "Не удалось сформировать DOCX");
     } finally {
       setGenerating(false);
     }
@@ -633,22 +632,6 @@ export default function Home() {
       if (paragraphs.length <= 1) return prev;
       paragraphs.splice(index, 1);
       return { ...prev, paragraphs };
-    });
-  };
-
-  const updateRecipientLine = (index: number, value: string) => {
-    setData((prev) => {
-      if (!prev || !isClassic(prev)) return prev;
-      const recipient = [...prev.recipient];
-      recipient[index] = value;
-      return { ...prev, recipient };
-    });
-  };
-
-  const addRecipientLine = () => {
-    setData((prev) => {
-      if (!prev || !isClassic(prev)) return prev;
-      return { ...prev, recipient: [...prev.recipient, ""] };
     });
   };
 
@@ -892,9 +875,19 @@ export default function Home() {
 
                 {/* Свой шаблон — drag & drop + click */}
                 <div className="mt-4">
-                  <h3 className="text-sm font-medium text-white/70 mb-2">
-                    Или свой шаблон
-                  </h3>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-medium text-white/70">
+                      Или свой шаблон
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={handleDownloadGuidebook}
+                      className="text-xs px-3 py-1.5 rounded-lg glass hover:bg-white/10 transition focus-ring text-white/80"
+                      title="Скачать гайдбук с доступными метками шаблона"
+                    >
+                      ⬇ Гайдбук по меткам
+                    </button>
+                  </div>
                   <div
                     onDragOver={(e) => {
                       e.preventDefault();
@@ -1039,113 +1032,45 @@ export default function Home() {
                             ? "Свой шаблон"
                             : selectedTemplate?.name}
                         </div>
+                        <div className="text-xs text-white/45">
+                          Не все поля обязательны к заполнению
+                        </div>
                       </div>
 
-                      {isClassic(data) ? (
-                        <div className="space-y-3">
-                          <Field
-                            label="Организация"
-                            value={data.organization}
-                            onChange={(v) => updateField("organization", v)}
-                          />
-                          <Field
-                            label="Тип документа"
-                            value={data.document_type}
-                            onChange={(v) => updateField("document_type", v)}
-                          />
-                          <div>
-                            <label className="text-xs text-white/55 mb-1 block">
-                              Адресат (по строкам)
-                            </label>
-                            {data.recipient.map((line, i) => (
-                              <input
-                                key={i}
-                                type="text"
-                                value={line}
-                                onChange={(e) =>
-                                  updateRecipientLine(i, e.target.value)
-                                }
-                                className="w-full mb-1.5 rounded-lg bg-black/25 border border-white/10 px-3 py-2 text-sm outline-none focus:border-blue-400/50 focus-ring"
-                                placeholder={`Строка ${i + 1}`}
-                              />
-                            ))}
-                            <button
-                              type="button"
-                              onClick={addRecipientLine}
-                              className="text-xs text-blue-300 hover:text-blue-200"
-                            >
-                              + строка адресата
-                            </button>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-3">
+                        {(Object.keys(LABELS) as LabelKey[]).map((key) => {
+                          const value = (data as any)[key];
+                          // Показываем поле, только если оно вообще было в ответе бэка.
+                          // Пустые строки тоже показываем — пользователь может заполнить.
+                          if (value === undefined) return null;
+
+                          // recipient в classic может быть многострочным — сделаем textarea
+                          if (key === "recipient") {
+                            return (
+                              <div key={key}>
+                                <label className="text-xs text-white/55 mb-1 block">
+                                  {LABELS[key]} {key === "recipient" && "(по строкам)"}
+                                </label>
+                                <textarea
+                                  value={String(value ?? "")}
+                                  onChange={(e) => updateField(key, e.target.value)}
+                                  rows={2}
+                                  className="w-full rounded-lg bg-black/25 border border-white/10 px-3 py-2 text-sm outline-none focus:border-blue-400/50 focus-ring resize-y min-h-[60px]"
+                                />
+                              </div>
+                            );
+                          }
+
+                          return (
                             <Field
-                              label="Дата"
-                              value={data.date}
-                              onChange={(v) => updateField("date", v)}
+                              key={key}
+                              label={LABELS[key]}
+                              value={String(value ?? "")}
+                              onChange={(v) => updateField(key, v)}
                             />
-                            <Field
-                              label="Номер"
-                              value={data.number}
-                              onChange={(v) => updateField("number", v)}
-                            />
-                          </div>
-                          <Field
-                            label="Заголовок / тема"
-                            value={data.title}
-                            onChange={(v) => updateField("title", v)}
-                          />
-                          <Field
-                            label="Должность подписанта"
-                            value={data.sign_position}
-                            onChange={(v) => updateField("sign_position", v)}
-                          />
-                          <Field
-                            label="ФИО подписанта"
-                            value={data.signer}
-                            onChange={(v) => updateField("signer", v)}
-                          />
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          <Field
-                            label="Тема"
-                            value={(data as ModernData).topic}
-                            onChange={(v) => updateField("topic", v)}
-                          />
-                          <Field
-                            label="Кому (адресат)"
-                            value={(data as ModernData).recipient}
-                            onChange={(v) => updateField("recipient", v)}
-                          />
-                          <Field
-                            label="От кого (автор)"
-                            value={(data as ModernData).author}
-                            onChange={(v) => updateField("author", v)}
-                          />
-                          <div className="grid grid-cols-2 gap-2">
-                            <Field
-                              label="Дата"
-                              value={data.date}
-                              onChange={(v) => updateField("date", v)}
-                            />
-                            <Field
-                              label="Номер"
-                              value={data.number}
-                              onChange={(v) => updateField("number", v)}
-                            />
-                          </div>
-                          <Field
-                            label="Должность подписанта"
-                            value={data.sign_position}
-                            onChange={(v) => updateField("sign_position", v)}
-                          />
-                          <Field
-                            label="ФИО подписанта"
-                            value={data.signer}
-                            onChange={(v) => updateField("signer", v)}
-                          />
-                        </div>
-                      )}
+                          );
+                        })}
+                      </div>
 
                       {/* Paragraphs */}
                       <div className="border-t border-white/10 pt-3">
@@ -1206,10 +1131,10 @@ export default function Home() {
                       </h3>
                       <div className="rounded-xl overflow-hidden border border-white/10 bg-neutral-900/50 p-3 sm:p-4">
                         {template !== "custom" &&
-                          (isClassic(data) ? (
+                          (template === "org_classic" ? (
                             <ClassicPreview data={data} />
                           ) : (
-                            <ModernPreview data={data as ModernData} />
+                            <ModernPreview data={data} />
                           ))}
                       </div>
                       <p className="text-[11px] text-white/35 text-center">

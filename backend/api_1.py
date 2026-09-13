@@ -3,6 +3,8 @@ from pathlib import Path
 from uuid import uuid4
 
 import whisper
+import static_ffmpeg
+
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -11,6 +13,7 @@ from pydantic import BaseModel, Field
 from Classic import process_text as classic_process, build_docx as classic_build
 from NewStyle import process_text as modern_process, build_docx as modern_build
 
+static_ffmpeg.add_paths()
 
 app = FastAPI()
 

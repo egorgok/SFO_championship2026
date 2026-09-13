@@ -103,6 +103,19 @@ def health():
 
 
 # ——— Process (LLM > JSON) ———
+@app.post("/template/process", response_model=TemplateData) # text -> json
+def template_process_endpoint(request: TextRequest):
+    try:
+        return process_text_as_dict(request.text)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ошибка обработки текста: {e}",
+        )
+
+    
 @app.post("/template/{template_name}") # Полный text -> docx
 def create_document_from_text(
     template_name: Literal["classic", "modern"],
@@ -142,18 +155,6 @@ def create_document_from_text(
             "wordprocessingml.document"
         ),
     )
-
-@app.post("/template/process", response_model=TemplateData) # text -> json
-def template_process_endpoint(request: TextRequest):
-    try:
-        return process_text_as_dict(request.text)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Ошибка обработки текста: {e}",
-        )
 
 @app.post("/template/{template_name}/generate") # json -> docx
 def template_generate_endpoint(

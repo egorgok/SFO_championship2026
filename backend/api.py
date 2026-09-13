@@ -133,9 +133,13 @@ def health():
 @app.post("/template/process")
 def template_process_endpoint(request: TextRequest):
     try:
-        data = process_text_as_dict(request.text)
-        document_id = uuid4().hex
+        raw_data = process_text_as_dict(request.text)
 
+        # Добавляет отсутствующие поля со значениями по умолчанию:
+        # строки — "", paragraphs — []
+        data = TemplateData(**raw_data).model_dump()
+
+        document_id = uuid4().hex
         DOCUMENT_CACHE[document_id] = data
 
         return {
@@ -154,6 +158,35 @@ def template_process_endpoint(request: TextRequest):
             status_code=500,
             detail=f"Ошибка обработки текста: {error}",
         ) from error
+
+@app.put("/template/data/{document_id}")
+def update_template_data(
+    document_id: str,
+    data: TemplateData,
+):
+    """
+    Принимает отредактированные пользователем данные
+    и сохраняет их для последующей генерации DOCX.
+    """
+
+    if document_id not in DOCUMENT_CACHE:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Данные документа не найдены. "
+                "Сначала обработайте черновик через /template/process."
+            ),
+        )
+
+    updated_data = data.model_dump()
+
+    DOCUMENT_CACHE[document_id] = updated_data
+
+    return {
+        "document_id": document_id,
+        "data": updated_data,
+        "message": "Изменения сохранены.",
+    }
 
 
 @app.post("/template/{template_name}") # Полный text -> docx
@@ -202,8 +235,8 @@ async def generate_from_custom_template(
     template: UploadFile = File(...),
 ):
     """
-    Принимает только DOCX-шаблон.
-    JSON берётся из результата предыдущей обработки текста.
+    Принимает DOCX-шаблон.
+    Использует актуальный JSON документа.
     """
 
     data = DOCUMENT_CACHE.get(document_id)
@@ -212,8 +245,8 @@ async def generate_from_custom_template(
         raise HTTPException(
             status_code=404,
             detail=(
-                "Результат обработки текста не найден. "
-                "Сначала вызовите /template/process."
+                "Данные документа не найдены. "
+                "Сначала обработайте текст через /template/process."
             ),
         )
 
@@ -225,7 +258,9 @@ async def generate_from_custom_template(
             detail="Можно загружать только файлы .docx.",
         )
 
-    template_content = await template.read(MAX_TEMPLATE_SIZE + 1)
+    template_content = await template.read(
+        MAX_TEMPLATE_SIZE + 1
+    )
 
     if not template_content:
         raise HTTPException(
@@ -236,10 +271,9 @@ async def generate_from_custom_template(
     if len(template_content) > MAX_TEMPLATE_SIZE:
         raise HTTPException(
             status_code=413,
-            detail="Размер шаблона не должен превышать 10 МБ.",
+            detail="Размер шаблона не должен превышать 64 МБ.",
         )
 
-    # DOCX является ZIP-архивом.
     if not template_content.startswith(b"PK"):
         raise HTTPException(
             status_code=400,
@@ -275,9 +309,6 @@ async def generate_from_custom_template(
             detail=f"Ошибка заполнения шаблона: {error}",
         ) from error
 
-    # После успешной генерации JSON больше не нужен.
-    DOCUMENT_CACHE.pop(document_id, None)
-
     return FileResponse(
         path=output_path,
         filename="custom_document.docx",
@@ -291,6 +322,7 @@ async def generate_from_custom_template(
             output_path,
         ),
     )
+
 
 
 

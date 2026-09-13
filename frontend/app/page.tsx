@@ -440,6 +440,59 @@ export default function Home() {
     }
   }, [draft, docType, template, selectedType]);
 
+  const saveTemplateData = async () => {
+    if (!data || !documentId) {
+      throw new Error("Документ ещё не обработан");
+    }
+
+    const payload = {
+      organization: data.organization || "",
+      document_type: data.document_type || "",
+      topic: isClassic(data)
+        ? data.title || ""
+        : (data as ModernData).topic || "",
+      recipient: isClassic(data)
+        ? data.recipient || []
+        : (data as ModernData).recipient || "",
+      author: isClassic(data)
+        ? ""
+        : (data as ModernData).author || "",
+      date: data.date || "",
+      number: data.number || "",
+      paragraphs: data.paragraphs || [],
+      sign_position: data.sign_position || "",
+      signer: data.signer || "",
+    };
+
+    const res = await fetch(
+      `${API_BASE}/template/data/${documentId}`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      }
+    );
+
+    if (!res.ok) {
+      let detail = `Ошибка сохранения (${res.status})`;
+
+      try {
+        const errJson = await res.json();
+        if (errJson?.detail) {
+          detail = String(errJson.detail);
+        }
+      } catch {
+        // ignore
+      }
+
+      throw new Error(detail);
+    }
+
+    return await res.json();
+  };
+
   const handleDownload = async () => {
     if (!data || !template) return;
     setGenerating(true);
@@ -451,6 +504,7 @@ export default function Home() {
       let headers: HeadersInit = {};
 
       if (template === "custom") {
+        await saveTemplateData();
         if (!customTemplateFile) {
           throw new Error("Выберите файл шаблона");
         }

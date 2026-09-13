@@ -1,10 +1,16 @@
+import os
+import json
 from pathlib import Path
 from uuid import uuid4
 from typing import Literal
 
-
-
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+import whisper
+import static_ffmpeg
+
+from openai import OpenAI
+
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -15,6 +21,7 @@ from NewStyle import process_text as modern_process, build_docx as modern_build
 from json_data import process_text_as_dict
 from docx_sender import fill_docx_template
 
+static_ffmpeg.add_paths()
 
 app = FastAPI()
 
@@ -446,3 +453,40 @@ def new_style(request: TextRequest):
         filename="new_style.docx",
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
+
+
+model = whisper.load_model("small")
+@app.post("/api/speech-to-text")
+async def speech_to_text(audio: UploadFile = File(...)):
+    temp_filename = f"temp_{audio.filename}"
+    with open(temp_filename, "wb") as buffer:
+        content = await audio.read()
+        buffer.write(content)
+
+    try:
+        client = OpenAI(
+                api_key=os.getenv("OPENAI_API_KEY"),
+                base_url=os.getenv("OPENAI_BASE_URL"),
+            )
+    
+        result = model.transcribe(temp_filename, language="ru",fp16=False,no_speech_threshold=0.35,temperature=0.5) 
+        transcribed_text = result.get("text", "").strip()
+        if not transcribed_text:
+                    return {"error": "Не удалось распознать речь."}, 400
+        response = client.chat.completions.create(
+                        model=os.getenv("OPENAI_MODEL"),
+                        messages=[
+                            {"role": "system", "content": "Ты должен изменить опечатки сервиса распознования речи, не исправляя грамматику и пунктуацию. Не добавляй информацию от себя. Ожидай официально-деловой стиль."},
+                            {"role": "user", "content": transcribed_text},
+                        ],
+                        response_format={"type": "json_object"},
+                    )
+        data = json.loads(response.choices[0].message.content).get("text", "")
+        return {"text": data}
+        
+    except Exception as e:
+        return {"error": str(e)}, 500
+        
+    finally:
+        if os.path.exists(temp_filename):
+            os.remove(temp_filename)

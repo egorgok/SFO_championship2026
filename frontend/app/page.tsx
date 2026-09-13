@@ -1,7 +1,7 @@
 "use client";
 
-import { parse } from "path";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
+import UniversalVoiceInput from './voice';
 
 // ——— Types ———
 type DocType =
@@ -74,35 +74,35 @@ const DOC_TYPES: {
   description: string;
   icon: string;
 }[] = [
-  {
-    id: "service_note",
-    title: "Служебная записка",
-    short: "Служебная",
-    description: "Внутренний документ: кому, от кого, суть, подпись",
-    icon: "📋",
-  },
-  {
-    id: "report_note",
-    title: "Докладная записка",
-    short: "Докладная",
-    description: "Доклад с предложениями или фактами",
-    icon: "📑",
-  },
-  {
-    id: "info_certificate",
-    title: "Информационная справка",
-    short: "Справка",
-    description: "Информация по запросу или событию",
-    icon: "📄",
-  },
-  {
-    id: "letter",
-    title: "Письмо",
-    short: "Письмо",
-    description: "Исходящее письмо организации",
-    icon: "✉️",
-  },
-];
+    {
+      id: "service_note",
+      title: "Служебная записка",
+      short: "Служебная",
+      description: "Внутренний документ: кому, от кого, суть, подпись",
+      icon: "📋",
+    },
+    {
+      id: "report_note",
+      title: "Докладная записка",
+      short: "Докладная",
+      description: "Доклад с предложениями или фактами",
+      icon: "📑",
+    },
+    {
+      id: "info_certificate",
+      title: "Информационная справка",
+      short: "Справка",
+      description: "Информация по запросу или событию",
+      icon: "📄",
+    },
+    {
+      id: "letter",
+      title: "Письмо",
+      short: "Письмо",
+      description: "Исходящее письмо организации",
+      icon: "✉️",
+    },
+  ];
 
 const TEMPLATES: TemplateInfo[] = [
   {
@@ -270,7 +270,6 @@ function ModernPreview({ data }: { data: ModernData }) {
     </div>
   );
 }
-
 // ——— Main ———
 
 export default function Home() {
@@ -713,21 +712,19 @@ export default function Home() {
                 <div
                   className={`
                     w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-sm font-medium shrink-0 transition-all
-                    ${
-                      step === s
-                        ? "bg-blue-500 text-white glow-accent"
-                        : step > s
-                          ? "bg-emerald-500/80 text-white"
-                          : "glass text-white/40"
+                    ${step === s
+                      ? "bg-blue-500 text-white glow-accent"
+                      : step > s
+                        ? "bg-emerald-500/80 text-white"
+                        : "glass text-white/40"
                     }
                   `}
                 >
                   {step > s ? "✓" : s}
                 </div>
                 <span
-                  className={`hidden sm:inline text-xs font-medium ${
-                    step === s ? "text-white" : "text-white/40"
-                  }`}
+                  className={`hidden sm:inline text-xs font-medium ${step === s ? "text-white" : "text-white/40"
+                    }`}
                 >
                   {s === 1
                     ? "Черновик"
@@ -737,9 +734,8 @@ export default function Home() {
                 </span>
                 {s < 3 && (
                   <div
-                    className={`flex-1 h-0.5 rounded ${
-                      step > s ? "bg-emerald-500/60" : "bg-white/10"
-                    }`}
+                    className={`flex-1 h-0.5 rounded ${step > s ? "bg-emerald-500/60" : "bg-white/10"
+                      }`}
                   />
                 )}
               </div>
@@ -768,7 +764,6 @@ export default function Home() {
                   Вставьте текст как есть. Переносы строк сохраняются: одна
                   строка → строка, пустая строка → новый абзац.
                 </p>
-
                 <textarea
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
@@ -782,6 +777,12 @@ export default function Home() {
                   Подсказка: Enter — новая строка, Enter дважды — новый абзац.
                   Текст будет нормализован перед отправкой в ИИ.
                 </p>
+                <div className="mt-3">
+                  <UniversalVoiceInput
+                    processEndpoint="/api/speech-to-text"
+                    onTextReceived={(newText) => setDraft((prev) => prev ? `${prev} ${newText}` : newText)}
+                  />
+                </div>
               </div>
 
               <div className="flex justify-end">
@@ -817,10 +818,9 @@ export default function Home() {
                       onClick={() => setDocType(d.id)}
                       className={`
                         text-left p-3 sm:p-4 rounded-xl transition focus-ring
-                        ${
-                          docType === d.id
-                            ? "glass-strong !ring-2 !ring-blue-400/60"
-                            : "glass hover:bg-white/10"
+                        ${docType === d.id
+                          ? "glass-strong !ring-2 !ring-blue-400/60"
+                          : "glass hover:bg-white/10"
                         }
                       `}
                     >
@@ -849,10 +849,9 @@ export default function Home() {
                       key={t.id}
                       className={`
                         relative text-left p-3 sm:p-4 rounded-xl transition
-                        ${
-                          template === t.id
-                            ? "glass-strong !ring-2 !ring-violet-400/60"
-                            : "glass hover:bg-white/10"
+                        ${template === t.id
+                          ? "glass-strong !ring-2 !ring-violet-400/60"
+                          : "glass hover:bg-white/10"
                         }
                       `}
                     >

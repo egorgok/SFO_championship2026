@@ -1144,17 +1144,19 @@ export default function Home() {
                       </div>
                     </div>
 
+
                     {/* Right: live preview */}
                     <div className="space-y-3">
                       <h3 className="text-sm font-medium text-white/70 px-1">
                         Предпросмотр
                       </h3>
                       <div className="rounded-xl overflow-hidden border border-white/10 bg-neutral-900/50 p-3 sm:p-4">
-                        {isClassic(data) ? (
-                          <ClassicPreview data={data} />
-                        ) : (
-                          <ModernPreview data={data as ModernData} />
-                        )}
+                        {template !== "custom" &&
+                          (isClassic(data) ? (
+                            <ClassicPreview data={data} />
+                          ) : (
+                            <ModernPreview data={data as ModernData} />
+                          ))}
                       </div>
                       <p className="text-[11px] text-white/35 text-center">
                         Макет приближён к итоговому DOCX. Правки отображаются

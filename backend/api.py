@@ -1,9 +1,12 @@
 import os
+import json
 from pathlib import Path
 from uuid import uuid4
 
 import whisper
 import static_ffmpeg
+
+from openai import OpenAI
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -157,8 +160,7 @@ def new_style(request: TextRequest):
     )
 
 
-model = whisper.load_model("base")
-
+model = whisper.load_model("small")
 @app.post("/api/speech-to-text")
 async def speech_to_text(audio: UploadFile = File(...)):
     temp_filename = f"temp_{audio.filename}"
@@ -167,16 +169,25 @@ async def speech_to_text(audio: UploadFile = File(...)):
         buffer.write(content)
 
     try:
-        result = model.transcribe(temp_filename, language="ru",fp16=False,temperature=0.0,best_of=10,beam_size=50,no_speech_threshold=0.6,condition_on_previous_text=False,  
-                                  initial_prompt="служебная записка, письмо, инвентаризация, недостача, акт, претензия, рекламация, жалоба, уведомление, заявление, ходатайство, запрос, предложение, отчет, отчетность," \
-                                  "директор, начальник, руководитель, заместитель, председатель, председательствующий, менеджер, совещание, заседание, комиссия, комитет, собрание, заседание, протокол, решение, постановление, " \
-                                  "распоряжение, приказ, указание, поручение, задание, инструкция,")
+        client = OpenAI(
+                api_key=os.getenv("OPENAI_API_KEY"),
+                base_url=os.getenv("OPENAI_BASE_URL"),
+            )
+    
+        result = model.transcribe(temp_filename, language="ru",fp16=False,no_speech_threshold=0.35,temperature=0.5) 
         transcribed_text = result.get("text", "").strip()
         if not transcribed_text:
-            print("zero")
-            return {"error": "Не удалось распознать речь."}, 400
-        print("not zero")
-        return {"text": transcribed_text}
+                    return {"error": "Не удалось распознать речь."}, 400
+        response = client.chat.completions.create(
+                        model=os.getenv("OPENAI_MODEL"),
+                        messages=[
+                            {"role": "system", "content": "Ты должен изменить опечатки сервиса распознования речи, не исправляя грамматику и пунктуацию. Не добавляй информацию от себя. Ожидай официально-деловой стиль."},
+                            {"role": "user", "content": transcribed_text},
+                        ],
+                        response_format={"type": "json_object"},
+                    )
+        data = json.loads(response.choices[0].message.content).get("text", "")
+        return {"text": data}
         
     except Exception as e:
         return {"error": str(e)}, 500

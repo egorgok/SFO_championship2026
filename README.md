@@ -1,7 +1,7 @@
 Документация по бэкэнду есть в api.kabanchiki.mooo.com/docs <br>
 Документация по шаблонам на втором этапе создания документа <br>
 
-[Скринкаст](https://disk.yandex.ru/i/FD1JumqpOqcrEg) &ensp; &ensp; [Сайт с решением](https://kabanchiki.mooo.com/) &ensp; &ensp; [Презентация](https://gitverse.ru/hackrus.experts/cempionat-fsp-2026_kabanchiki_72/content/master/Кабанчики.pdf) <br>
+[Скринкаст](https://disk.yandex.ru/i/FD1JumqpOqcrEg) &ensp; &ensp; [Скринкаст(Зеркало)](https://mega.nz/file/QyZ1hJob#95WLImafEAcYWEK51Q0FnLPZeXX0Uy0-uNmVKhAueYY) &ensp; &ensp; [Сайт с решением](https://kabanchiki.mooo.com/) &ensp; &ensp; [Презентация](https://gitverse.ru/hackrus.experts/cempionat-fsp-2026_kabanchiki_72/content/master/Кабанчики.pdf) <br>
 
 
 

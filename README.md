@@ -6,4 +6,4 @@
 
 Документация по бэкэнду есть в localhost:8000 !!!!
 
-[Скринкаст](https://disk.yandex.ru/i/FD1JumqpOqcrEg)
+[Скринкаст](https://disk.yandex.ru/i/FD1JumqpOqcrEg) [Сайт](https://kabanchiki.mooo.com/)

@@ -1,7 +1,9 @@
+import os
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+import whisper
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -150,3 +152,32 @@ def new_style(request: TextRequest):
         filename="new_style.docx",
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
+
+
+model = whisper.load_model("base")
+
+@app.post("/api/speech-to-text")
+async def speech_to_text(audio: UploadFile = File(...)):
+    temp_filename = f"temp_{audio.filename}"
+    with open(temp_filename, "wb") as buffer:
+        content = await audio.read()
+        buffer.write(content)
+
+    try:
+        result = model.transcribe(temp_filename, language="ru",fp16=False,temperature=0.0,best_of=10,beam_size=50,no_speech_threshold=0.6,condition_on_previous_text=False,  
+                                  initial_prompt="служебная записка, письмо, инвентаризация, недостача, акт, претензия, рекламация, жалоба, уведомление, заявление, ходатайство, запрос, предложение, отчет, отчетность," \
+                                  "директор, начальник, руководитель, заместитель, председатель, председательствующий, менеджер, совещание, заседание, комиссия, комитет, собрание, заседание, протокол, решение, постановление, " \
+                                  "распоряжение, приказ, указание, поручение, задание, инструкция,")
+        transcribed_text = result.get("text", "").strip()
+        if not transcribed_text:
+            print("zero")
+            return {"error": "Не удалось распознать речь."}, 400
+        print("not zero")
+        return {"text": transcribed_text}
+        
+    except Exception as e:
+        return {"error": str(e)}, 500
+        
+    finally:
+        if os.path.exists(temp_filename):
+            os.remove(temp_filename)

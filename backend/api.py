@@ -4,10 +4,11 @@ from typing import Literal
 
 
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
 from Classic import process_text as classic_process, build_docx as classic_build
 from NewStyle import process_text as modern_process, build_docx as modern_build
@@ -34,6 +35,22 @@ OUTPUT_DIR = Path("generated")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 TEMPLATE_DIR = Path("template")
+CUSTOM_TEMPLATE_DIR = Path("uploaded_templates")
+CUSTOM_TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
+
+MAX_TEMPLATE_SIZE = 64 * 1024 * 1024  # 64 МБ
+
+# Временное хранение результатов обработки текста.
+DOCUMENT_CACHE: dict[str, dict] = {}
+
+
+def remove_files(*paths: Path) -> None:
+    for path in paths:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
 
 TEMPLATES = {
     "classic": TEMPLATE_DIR / "classic.docx",
@@ -48,13 +65,18 @@ class TemplateData(BaseModel):
     organization: str = ""
     document_type: str = ""
     topic: str = ""
-    recipient: str | list[str] = ""
+
+    recipient_job: str = ""
+    recipient_name: str = ""
+    recipient: str = ""
+
     author: str = ""
     date: str = ""
     number: str = ""
     paragraphs: list[str] = Field(default_factory=list)
     sign_position: str = ""
     signer: str = ""
+
 
 class ClassicData(BaseModel):
     organization: str = ""
@@ -72,13 +94,18 @@ class ModernData(BaseModel):
     organization: str = ""
     document_type: str = ""
     topic: str = ""
+
+    recipient_job: str = ""
+    recipient_name: str = ""
     recipient: str = ""
+
     author: str = ""
     date: str = ""
     number: str = ""
     paragraphs: list[str] = Field(default_factory=list)
     sign_position: str = ""
     signer: str = ""
+
 
 def get_template_path(template_name: str) -> Path:
     template_path = TEMPLATES.get(template_name)
@@ -103,19 +130,32 @@ def health():
 
 
 # ——— Process (LLM > JSON) ———
-@app.post("/template/process", response_model=TemplateData) # text -> json
+@app.post("/template/process")
 def template_process_endpoint(request: TextRequest):
     try:
-        return process_text_as_dict(request.text)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
+        data = process_text_as_dict(request.text)
+        document_id = uuid4().hex
+
+        DOCUMENT_CACHE[document_id] = data
+
+        return {
+            "document_id": document_id,
+            "data": data,
+        }
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
+
+    except Exception as error:
         raise HTTPException(
             status_code=500,
-            detail=f"Ошибка обработки текста: {e}",
-        )
+            detail=f"Ошибка обработки текста: {error}",
+        ) from error
 
-    
+
 @app.post("/template/{template_name}") # Полный text -> docx
 def create_document_from_text(
     template_name: Literal["classic", "modern"],
@@ -155,6 +195,104 @@ def create_document_from_text(
             "wordprocessingml.document"
         ),
     )
+
+@app.post("/custom-template/{document_id}")
+async def generate_from_custom_template(
+    document_id: str,
+    template: UploadFile = File(...),
+):
+    """
+    Принимает только DOCX-шаблон.
+    JSON берётся из результата предыдущей обработки текста.
+    """
+
+    data = DOCUMENT_CACHE.get(document_id)
+
+    if data is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Результат обработки текста не найден. "
+                "Сначала вызовите /template/process."
+            ),
+        )
+
+    original_filename = template.filename or ""
+
+    if Path(original_filename).suffix.lower() != ".docx":
+        raise HTTPException(
+            status_code=400,
+            detail="Можно загружать только файлы .docx.",
+        )
+
+    template_content = await template.read(MAX_TEMPLATE_SIZE + 1)
+
+    if not template_content:
+        raise HTTPException(
+            status_code=400,
+            detail="Загруженный шаблон пуст.",
+        )
+
+    if len(template_content) > MAX_TEMPLATE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail="Размер шаблона не должен превышать 10 МБ.",
+        )
+
+    # DOCX является ZIP-архивом.
+    if not template_content.startswith(b"PK"):
+        raise HTTPException(
+            status_code=400,
+            detail="Файл не является корректным DOCX.",
+        )
+
+    file_id = uuid4().hex
+
+    template_path = (
+        CUSTOM_TEMPLATE_DIR /
+        f"template_{file_id}.docx"
+    )
+
+    output_path = (
+        OUTPUT_DIR /
+        f"custom_{file_id}.docx"
+    )
+
+    try:
+        template_path.write_bytes(template_content)
+
+        fill_docx_template(
+            data=data,
+            template_path=template_path,
+            output_path=output_path,
+        )
+
+    except Exception as error:
+        remove_files(template_path, output_path)
+
+        raise HTTPException(
+            status_code=400,
+            detail=f"Ошибка заполнения шаблона: {error}",
+        ) from error
+
+    # После успешной генерации JSON больше не нужен.
+    DOCUMENT_CACHE.pop(document_id, None)
+
+    return FileResponse(
+        path=output_path,
+        filename="custom_document.docx",
+        media_type=(
+            "application/vnd.openxmlformats-officedocument."
+            "wordprocessingml.document"
+        ),
+        background=BackgroundTask(
+            remove_files,
+            template_path,
+            output_path,
+        ),
+    )
+
+
 
 @app.post("/template/{template_name}/generate") # json -> docx
 def template_generate_endpoint(

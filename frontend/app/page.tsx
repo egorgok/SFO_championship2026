@@ -1,5 +1,6 @@
 "use client";
 
+import { parse } from "path";
 import { useState, useCallback, useEffect } from "react";
 
 // ——— Types ———
@@ -9,15 +10,15 @@ type DocType =
   | "info_certificate"
   | "letter";
 
-type TemplateId = "org_classic" | "org_modern";
+type TemplateId = "org_classic" | "org_modern" | "custom";
 
 interface TemplateInfo {
-  id: TemplateId;
+  id: "org_classic" | "org_modern";
   name: string;
   description: string;
   style: string;
-  processEndpoint: string;
-  generateEndpoint: string;
+  /** Имя на бэке: classic | modern → /template/{name}/generate */
+  backendName: string;
   details: {
     font: string;
     fontSize: string;
@@ -57,6 +58,14 @@ type StructuredData = ClassicData | ModernData;
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://127.0.0.1:8000";
+
+/**
+ * Бэкенд API (без изменений api.py):
+ *   POST /classic/process | /new-style/process  — текст → JSON
+ *     ( /template/process может перехватываться роутом {template_name} )
+ *   POST /template/classic/generate             — JSON → DOCX
+ *   POST /template/modern/generate              — JSON → DOCX
+ */
 
 const DOC_TYPES: {
   id: DocType;
@@ -101,8 +110,8 @@ const TEMPLATES: TemplateInfo[] = [
     name: "Классика",
     description: "Times New Roman, строгие поля, колонтитул с реквизитами",
     style: "from-slate-700/40 to-slate-900/40",
-    processEndpoint: "/classic/process",
-    generateEndpoint: "/classic/generate",
+    /** имя шаблона на бэке → /template/classic/generate */
+    backendName: "classic",
     details: {
       font: "Times New Roman",
       fontSize: "14 пт",
@@ -115,8 +124,7 @@ const TEMPLATES: TemplateInfo[] = [
     name: "Современный",
     description: "Arial, компактные отступы, блок «Кому / От кого»",
     style: "from-indigo-700/40 to-violet-900/40",
-    processEndpoint: "/new-style/process",
-    generateEndpoint: "/new-style/generate",
+    backendName: "modern",
     details: {
       font: "Arial",
       fontSize: "12 пт",
@@ -128,16 +136,10 @@ const TEMPLATES: TemplateInfo[] = [
 
 /**
  * Подготовка текста перед отправкой в LLM.
- * - \r\n / \r → \n
- * - одиночный \n = перенос строки (сохраняем)
- * - \n\n = граница абзаца
- * - убираем лишние пробелы по краям строк, но не схлопываем абзацы
  */
 function prepareTextForApi(raw: string): string {
   let t = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  // нормализуем слишком много пустых строк (макс 2 подряд = 1 абзац)
   t = t.replace(/\n{3,}/g, "\n\n");
-  // trim каждой строки, но сохраняем структуру абзацев
   t = t
     .split("\n\n")
     .map((para) =>
@@ -156,35 +158,6 @@ function isClassic(data: StructuredData): data is ClassicData {
   return Array.isArray((data as ClassicData).recipient);
 }
 
-function emptyClassic(): ClassicData {
-  return {
-    organization: "",
-    document_type: "",
-    recipient: ["", ""],
-    date: "",
-    number: "",
-    title: "",
-    paragraphs: [""],
-    sign_position: "",
-    signer: "",
-  };
-}
-
-function emptyModern(): ModernData {
-  return {
-    organization: "",
-    document_type: "",
-    topic: "",
-    recipient: "",
-    author: "",
-    date: "",
-    number: "",
-    paragraphs: [""],
-    sign_position: "",
-    signer: "",
-  };
-}
-
 // ——— Preview components ———
 
 function ClassicPreview({ data }: { data: ClassicData }) {
@@ -194,29 +167,23 @@ function ClassicPreview({ data }: { data: ClassicData }) {
       className="bg-white text-black rounded-lg shadow-2xl overflow-hidden text-[13px] leading-[1.5]"
       style={{ fontFamily: '"Times New Roman", Times, serif' }}
     >
-      {/* Header org */}
       <div className="text-center text-[11px] text-neutral-600 border-b border-neutral-200 py-2 px-4">
         {data.organization || "— организация —"}
       </div>
 
       <div className="p-6 min-h-[420px]">
-        {/* Recipient right */}
         <div className="text-right mb-4 space-y-0.5 pl-[40%]">
           {recipient.length > 0 ? (
-            recipient.map((line, i) => (
-              <div key={i}>{line}</div>
-            ))
+            recipient.map((line, i) => <div key={i}>{line}</div>)
           ) : (
             <div className="text-neutral-400">Адресат</div>
           )}
         </div>
 
-        {/* Date / number */}
         <div className="mb-4 text-[12px]">
           Дата: {data.date || "—"} &nbsp;&nbsp; Номер: {data.number || "—"}
         </div>
 
-        {/* Doc type + title */}
         <div className="text-center font-bold mb-1 uppercase tracking-wide">
           {data.document_type || "СЛУЖЕБНЫЙ ДОКУМЕНТ"}
         </div>
@@ -224,7 +191,6 @@ function ClassicPreview({ data }: { data: ClassicData }) {
           <div className="text-center font-bold mb-4">{data.title}</div>
         )}
 
-        {/* Body */}
         <div className="space-y-3 text-justify">
           {(data.paragraphs || [])
             .filter((p) => p.trim())
@@ -238,7 +204,6 @@ function ClassicPreview({ data }: { data: ClassicData }) {
           )}
         </div>
 
-        {/* Signature */}
         <div className="mt-8 space-y-1">
           {data.sign_position && <div>{data.sign_position}</div>}
           <div>____________________</div>
@@ -260,7 +225,6 @@ function ModernPreview({ data }: { data: ModernData }) {
       style={{ fontFamily: "Arial, Helvetica, sans-serif" }}
     >
       <div className="p-5 min-h-[420px]">
-        {/* Topic */}
         {data.topic ? (
           <div className="font-bold mb-3 text-[13px]">{data.topic}</div>
         ) : (
@@ -269,15 +233,17 @@ function ModernPreview({ data }: { data: ModernData }) {
           </div>
         )}
 
-        {/* To / From table */}
         <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 mb-4 text-[12px]">
           <div className="font-bold">Кому:</div>
-          <div>{data.recipient || <span className="text-neutral-400">—</span>}</div>
+          <div>
+            {data.recipient || <span className="text-neutral-400">—</span>}
+          </div>
           <div className="font-bold">От кого:</div>
-          <div>{data.author || <span className="text-neutral-400">—</span>}</div>
+          <div>
+            {data.author || <span className="text-neutral-400">—</span>}
+          </div>
         </div>
 
-        {/* Body */}
         <div className="space-y-2.5">
           {(data.paragraphs || [])
             .filter((p) => p.trim())
@@ -289,7 +255,6 @@ function ModernPreview({ data }: { data: ModernData }) {
           )}
         </div>
 
-        {/* Signature center */}
         <div className="mt-8 text-center space-y-1">
           {data.sign_position && <div>{data.sign_position}</div>}
           <div>____________________</div>
@@ -298,7 +263,9 @@ function ModernPreview({ data }: { data: ModernData }) {
       </div>
 
       <div className="text-center text-[10px] text-neutral-500 border-t border-neutral-200 py-1.5">
-        {(data.topic || data.document_type || "Документ") + " | " + (data.date || "")}
+        {(data.topic || data.document_type || "Документ") +
+          " | " +
+          (data.date || "")}
       </div>
     </div>
   );
@@ -311,17 +278,23 @@ export default function Home() {
   const [draft, setDraft] = useState("");
   const [docType, setDocType] = useState<DocType | null>(null);
   const [template, setTemplate] = useState<TemplateId | null>(null);
+  const [customTemplateFile, setCustomTemplateFile] = useState<File | null>(
+    null
+  );
   const [processing, setProcessing] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<StructuredData | null>(null);
+  const [documentId, setDocumentId] = useState<string | null>(null);
   const [textCollapsed, setTextCollapsed] = useState(false);
-  const [templateInfoId, setTemplateInfoId] = useState<TemplateId | null>(null);
+  const [templateInfoId, setTemplateInfoId] = useState<
+    "org_classic" | "org_modern" | null
+  >(null);
 
   const selectedType = DOC_TYPES.find((d) => d.id === docType);
   const selectedTemplate = TEMPLATES.find((t) => t.id === template);
   const infoTemplate = TEMPLATES.find((t) => t.id === templateInfoId);
-
+  
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setTemplateInfoId(null);
@@ -339,8 +312,16 @@ export default function Home() {
       }
       setStep(2);
     } else if (step === 2) {
-      if (!docType || !template) {
-        setError("Выберите тип документа и шаблон");
+      if (!docType) {
+        setError("Выберите тип документа");
+        return;
+      }
+      if (!template) {
+        setError("Выберите шаблон");
+        return;
+      }
+      if (template === "custom" && !customTemplateFile) {
+        setError("Загрузите файл шаблона");
         return;
       }
       startProcessing();
@@ -349,8 +330,6 @@ export default function Home() {
 
   const startProcessing = useCallback(async () => {
     if (!docType || !template) return;
-    const tpl = TEMPLATES.find((t) => t.id === template);
-    if (!tpl) return;
 
     setProcessing(true);
     setError(null);
@@ -363,7 +342,17 @@ export default function Home() {
         : "";
       const payloadText = typeHint + prepareTextForApi(draft);
 
-      const res = await fetch(`${API_BASE}${tpl.processEndpoint}`, {
+      // Process: используем legacy-эндпоинты —
+      // /template/process на бэке объявлен ПОСЛЕ /template/{template_name}
+      // и может отдавать 422 (template_name="process" не в Literal).
+      const processUrl =
+  template === "org_classic"
+    ? `${API_BASE}/classic/process`
+    : template === "org_modern"
+      ? `${API_BASE}/new-style/process`
+      : `${API_BASE}/template/process`;
+
+      const res = await fetch(processUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: payloadText }),
@@ -381,45 +370,62 @@ export default function Home() {
       }
 
       const json = await res.json();
+      console.log(json);
+      // const parsedData = template === "custom" ? json.data : json;
+      const parsedData = json;
+      // Бэкенд отдаёт TemplateData:
+      // organization, document_type, topic, recipient (str|list),
+      // author, date, number, paragraphs, sign_position, signer
 
-      // Нормализуем под нужную форму
-      if (tpl.id === "org_classic") {
+      if (!parsedData) {
+        throw new Error("Backend не вернул данные документа");
+      }
+
+      const recipientRaw = parsedData.recipient;
+      const recipientList: string[] = Array.isArray(recipientRaw)
+        ? recipientRaw.map(String).map((s: string) => s.trim()).filter(Boolean)
+        : String(recipientRaw || "")
+            .split("\n")
+            .map((s: string) => s.trim())
+            .filter(Boolean);
+
+      if (template === "custom") {
+        setDocumentId(json.document_id);
+        setData(json);
+      }
+      else if (template === "org_classic") {
         const c: ClassicData = {
-          organization: json.organization || "",
-          document_type: json.document_type || "",
-          recipient: Array.isArray(json.recipient)
-            ? json.recipient
-            : String(json.recipient || "")
-                .split("\n")
-                .map((s: string) => s.trim())
-                .filter(Boolean),
-          date: json.date || "",
-          number: json.number || "",
-          title: json.title || "",
+          organization: parsedData.organization || "",
+          document_type: parsedData.document_type || "",
+          recipient: recipientList.length ? recipientList : [""],
+          date: parsedData.date || "",
+          number: parsedData.number || "",
+          title: parsedData.topic || parsedData.title || "",
           paragraphs:
-            Array.isArray(json.paragraphs) && json.paragraphs.length
-              ? json.paragraphs
+            Array.isArray(parsedData.paragraphs) && parsedData.paragraphs.length
+              ? parsedData.paragraphs
               : [""],
-          sign_position: json.sign_position || "",
-          signer: json.signer || "",
+          sign_position: parsedData.sign_position || "",
+          signer: parsedData.signer || "",
         };
-        if (c.recipient.length === 0) c.recipient = [""];
         setData(c);
       } else {
         const m: ModernData = {
-          organization: json.organization || "",
-          document_type: json.document_type || "",
-          topic: json.topic || "",
-          recipient: json.recipient || "",
-          author: json.author || "",
-          date: json.date || "",
-          number: json.number || "",
+          organization: parsedData.organization || "",
+          document_type: parsedData.document_type || "",
+          topic: parsedData.topic || parsedData.title || "",
+          recipient: Array.isArray(recipientRaw)
+            ? recipientList.join(", ")
+            : String(recipientRaw || ""),
+          author: parsedData.author || "",
+          date: parsedData.date || "",
+          number: parsedData.number || "",
           paragraphs:
-            Array.isArray(json.paragraphs) && json.paragraphs.length
-              ? json.paragraphs
+            Array.isArray(parsedData.paragraphs) && parsedData.paragraphs.length
+              ? parsedData.paragraphs
               : [""],
-          sign_position: json.sign_position || "",
-          signer: json.signer || "",
+          sign_position: parsedData.sign_position || "",
+          signer: parsedData.signer || "",
         };
         setData(m);
       }
@@ -435,19 +441,84 @@ export default function Home() {
   }, [draft, docType, template, selectedType]);
 
   const handleDownload = async () => {
-    if (!data || !selectedTemplate) return;
+    if (!data || !template) return;
     setGenerating(true);
     setError(null);
 
     try {
-      const res = await fetch(
-        `${API_BASE}${selectedTemplate.generateEndpoint}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
+      let url: string;
+      let body: BodyInit;
+      let headers: HeadersInit = {};
+
+      if (template === "custom") {
+        if (!customTemplateFile) {
+          throw new Error("Выберите файл шаблона");
         }
-      );
+
+        if (!documentId) {
+          throw new Error("Документ ещё не обработан");
+        }
+
+        const formData = new FormData();
+        formData.append("template", customTemplateFile);
+
+        const res = await fetch(
+          `${API_BASE}/custom-template/${documentId}`,
+          {
+            method: "POST",
+            body: formData,
+          }
+        );
+
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || "Ошибка генерации документа");
+        }
+
+        const blob = await res.blob();
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = customTemplateFile.name.replace(
+          /\.docx$/i,
+          "_generated.docx"
+        );
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+
+        return;
+      } else {
+        // classic / modern — именованный шаблон на бэке
+        const tpl = TEMPLATES.find((t) => t.id === template);
+        if (!tpl) throw new Error("Шаблон не найден");
+        url = `${API_BASE}/template/${tpl.backendName}/generate`;
+        headers = { "Content-Type": "application/json" };
+        // Приводим к TemplateData бэкенда
+        const payload = {
+          organization: data.organization || "",
+          document_type: data.document_type || "",
+          topic: isClassic(data) ? (data.title || "") : ((data as ModernData).topic || ""),
+          recipient: isClassic(data)
+            ? (data.recipient || [])
+            : ((data as ModernData).recipient || ""),
+          author: isClassic(data) ? "" : ((data as ModernData).author || ""),
+          date: data.date || "",
+          number: data.number || "",
+          paragraphs: data.paragraphs || [],
+          sign_position: data.sign_position || "",
+          signer: data.signer || "",
+        };
+        body = JSON.stringify(payload);
+      }
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers,
+        body,
+      });
 
       if (!res.ok) {
         let detail = `Ошибка генерации (${res.status})`;
@@ -461,13 +532,17 @@ export default function Home() {
       }
 
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
+      const objectUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url;
+      a.href = objectUrl;
       a.download =
-        selectedTemplate.id === "org_classic" ? "classic.docx" : "new_style.docx";
+        template === "org_classic"
+          ? "classic.docx"
+          : template === "org_modern"
+            ? "modern.docx"
+            : "document.docx";
       a.click();
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(objectUrl);
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Не удалось сформировать DOCX"
@@ -528,12 +603,24 @@ export default function Home() {
     setDraft("");
     setDocType(null);
     setTemplate(null);
+    setCustomTemplateFile(null);
     setError(null);
     setData(null);
     setProcessing(false);
     setGenerating(false);
     setTextCollapsed(false);
     setTemplateInfoId(null);
+  };
+
+  const onCustomFile = (file: File | null) => {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".docx")) {
+      setError("Нужен файл в формате .docx");
+      return;
+    }
+    setCustomTemplateFile(file);
+    setTemplate("custom");
+    setError(null);
   };
 
   return (
@@ -624,8 +711,8 @@ export default function Home() {
                   Шаг 1. Черновик
                 </h2>
                 <p className="text-sm text-white/55 mb-3">
-                  Вставьте текст как есть. Переносы строк сохраняются:
-                  одна строка → строка, пустая строка → новый абзац.
+                  Вставьте текст как есть. Переносы строк сохраняются: одна
+                  строка → строка, пустая строка → новый абзац.
                 </p>
 
                 <textarea
@@ -665,6 +752,7 @@ export default function Home() {
                   Тип помогает ИИ. Шаблон задаёт внешний вид DOCX.
                 </p>
 
+                {/* Тип документа */}
                 <h3 className="text-sm font-medium text-white/70 mb-2">
                   Тип документа
                 </h3>
@@ -697,6 +785,7 @@ export default function Home() {
                   ))}
                 </div>
 
+                {/* Шаблоны: Классика + Современный */}
                 <h3 className="text-sm font-medium text-white/70 mb-2">
                   Шаблон оформления
                 </h3>
@@ -715,7 +804,11 @@ export default function Home() {
                     >
                       <button
                         type="button"
-                        onClick={() => setTemplate(t.id)}
+                        onClick={() => {
+                          setTemplate(t.id);
+                          setCustomTemplateFile(null);
+                          setDocumentId(null);
+                        }}
                         className="w-full text-left focus-ring rounded-lg"
                       >
                         <div
@@ -742,6 +835,70 @@ export default function Home() {
                     </div>
                   ))}
                 </div>
+
+                {/* Свой шаблон — drag & drop + click */}
+                <div className="mt-4">
+                  <h3 className="text-sm font-medium text-white/70 mb-2">
+                    Или свой шаблон
+                  </h3>
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const file = e.dataTransfer.files?.[0] ?? null;
+                      onCustomFile(file);
+                    }}
+                    className={`
+                      relative flex flex-col items-center justify-center gap-2 p-5 rounded-xl border border-dashed
+                      transition
+                      ${
+                        template === "custom"
+                          ? "glass-strong !ring-2 !ring-violet-400/60 border-violet-400/40"
+                          : "glass border-white/15 hover:bg-white/5 hover:border-white/25"
+                      }
+                    `}
+                  >
+                    <input
+                      type="file"
+                      accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] ?? null;
+                        onCustomFile(file);
+                        // сброс value, чтобы можно было выбрать тот же файл снова
+                        e.target.value = "";
+                      }}
+                    />
+                    <div className="text-2xl pointer-events-none">📄</div>
+                    <div className="text-sm font-medium text-center pointer-events-none">
+                      {customTemplateFile
+                        ? customTemplateFile.name
+                        : "Перетащите .docx или нажмите, чтобы выбрать"}
+                    </div>
+                    <div className="text-xs text-white/45 text-center pointer-events-none">
+                      {customTemplateFile
+                        ? "Можно выбрать другой файл"
+                        : "Файл должен содержать метки {{ organization }}, {{ title }} и т.д."}
+                    </div>
+                  </div>
+
+                  {template === "custom" && customTemplateFile && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomTemplateFile(null);
+                        setTemplate(null);
+                      }}
+                      className="mt-2 text-xs text-red-300/80 hover:text-red-300"
+                    >
+                      Убрать свой шаблон
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="flex flex-col-reverse sm:flex-row justify-between gap-2">
@@ -753,7 +910,11 @@ export default function Home() {
                 </button>
                 <button
                   onClick={goNext}
-                  disabled={!docType || !template}
+                  disabled={
+                    !docType ||
+                    !template ||
+                    (template === "custom" && !customTemplateFile)
+                  }
                   className="px-5 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-400 disabled:opacity-40 disabled:pointer-events-none text-white font-medium text-sm sm:text-base transition shadow-lg shadow-blue-500/25 focus-ring"
                 >
                   Обработать →
@@ -819,12 +980,14 @@ export default function Home() {
                           Реквизиты и текст
                         </h2>
                         <div className="text-xs text-white/45">
-                          {selectedType?.title} · {selectedTemplate?.name}
+                          {selectedType?.title} ·{" "}
+                          {template === "custom"
+                            ? "Свой шаблон"
+                            : selectedTemplate?.name}
                         </div>
                       </div>
 
                       {isClassic(data) ? (
-                        /* ——— Classic fields ——— */
                         <div className="space-y-3">
                           <Field
                             label="Организация"
@@ -889,7 +1052,6 @@ export default function Home() {
                           />
                         </div>
                       ) : (
-                        /* ——— Modern fields ——— */
                         <div className="space-y-3">
                           <Field
                             label="Тема"
@@ -1056,7 +1218,9 @@ export default function Home() {
                 ✕
               </button>
             </div>
-            <p className="text-sm text-white/60 mb-3">{infoTemplate.details.notes}</p>
+            <p className="text-sm text-white/60 mb-3">
+              {infoTemplate.details.notes}
+            </p>
             <dl className="text-sm space-y-2">
               <div>
                 <dt className="text-xs text-white/40">Шрифт</dt>
@@ -1074,6 +1238,7 @@ export default function Home() {
             <button
               onClick={() => {
                 setTemplate(infoTemplate.id);
+                setCustomTemplateFile(null);
                 setTemplateInfoId(null);
               }}
               className="w-full mt-4 px-4 py-2.5 rounded-xl bg-violet-500 hover:bg-violet-400 text-white font-medium text-sm"

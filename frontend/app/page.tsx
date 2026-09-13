@@ -995,8 +995,8 @@ export default function Home() {
                         )}
                       </div>
                       <p className="text-[11px] text-white/35 text-center">
-                        Макет приближён к итоговому DOCX. Правки слева сразу
-                        отражаются здесь.
+                        Макет приближён к итоговому DOCX. Правки отображаются
+                        сразу.
                       </p>
                     </div>
                   </div>

@@ -1,9 +1,12 @@
 Для запуска фронтенда
-`npm run dev`
+`npm run dev -- -H 0.0.0.0`
 
 Для запуска бэкэнда:
-`uvicorn api:app --reload --port 8000`
+`uvicorn api:app --reload --host 0.0.0.0 --port 8000`
 
-Документация по бэкэнду есть в localhost:8000 !!!!
+*После запуска необходимо подождать минуты 4 до полного запуска всех модулей!!!*
 
-[Скринкаст](https://disk.yandex.ru/i/FD1JumqpOqcrEg) [Сайт](https://kabanchiki.mooo.com/)
+Документация по бэкэнду есть в localhost:8000/docs
+Документация по шаблонам на втором этапе создания документа
+
+[Скринкаст](https://disk.yandex.ru/i/FD1JumqpOqcrEg) [Сайт](https://kabanchiki.mooo.com/) Презентация (тут ссылку на гитверсе прямую)

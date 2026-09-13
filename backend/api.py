@@ -37,7 +37,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+BASE_DIR = Path(__file__).resolve().parent
 
+GUIDEBOOK_PATH = (
+    BASE_DIR
+    / "templates"
+    / "GuideBook.docx"
+)
 OUTPUT_DIR = Path("generated")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -137,6 +143,27 @@ def health():
 
 
 # ——— Process (LLM > JSON) ———
+@app.get("/guidebook")
+def download_guidebook():
+    """
+    Возвращает пользователю инструкцию по созданию DOCX-шаблонов.
+    """
+
+    if not GUIDEBOOK_PATH.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="Файл инструкции не найден.",
+        )
+
+    return FileResponse(
+        path=GUIDEBOOK_PATH,
+        filename="GuideBook.docx",
+        media_type=(
+            "application/vnd.openxmlformats-officedocument."
+            "wordprocessingml.document"
+        ),
+    )
+
 @app.post("/template/process")
 def template_process_endpoint(request: TextRequest):
     try:
